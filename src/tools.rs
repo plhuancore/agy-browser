@@ -29,12 +29,12 @@ pub fn list() -> Vec<Value> {
     vec![
         json!({
             "name": "tabs_list",
-            "description": "List open tabs with their ids, titles and URLs. The current tab is marked with *, tabs in the agy group with [agy].",
+            "description": "List open tabs with their ids, titles and URLs. The current tab is marked with *; grouped tabs show [group: name].",
             "inputSchema": { "type": "object", "properties": {} },
         }),
         json!({
             "name": "tab_new",
-            "description": "Open a new tab in the \"agy\" tab group (optionally at a URL), wait for it to load and make it the current tab.",
+            "description": "Open a new tab in the \"agy-browser\" tab group (optionally at a URL), wait for it to load and make it the current tab.",
             "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } } },
         }),
         json!({
@@ -44,7 +44,7 @@ pub fn list() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "tabId": { "type": "integer" },
-                    "group": { "type": "boolean", "description": "Also move the tab into the \"agy\" tab group." },
+                    "group": { "type": "boolean", "description": "Also move the tab into the \"agy-browser\" tab group." },
                 },
                 "required": ["tabId"],
             },
@@ -52,7 +52,7 @@ pub fn list() -> Vec<Value> {
         tool("tab_close", "Close a tab (defaults to the current tab).", json!({}), &[]),
         tool(
             "navigate",
-            "Go to a URL in the current tab and wait for the page to load (opens a new agy tab if there is no current tab yet). \
+            "Go to a URL in the current tab and wait for the page to load (opens a new tab in the agy-browser group if this session has none yet). \
              Also accepts \"back\", \"forward\" or \"reload\".",
             json!({ "url": { "type": "string" } }),
             &["url"],

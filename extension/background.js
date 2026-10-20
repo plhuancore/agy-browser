@@ -4,7 +4,7 @@
 
 const PORT = 8765;
 const CONSOLE_LIMIT = 300;
-const GROUP_TITLE = 'agy';
+const GROUP_TITLE = 'agy-browser';
 // Glowing border + simulated cursor on tabs agy is driving. Set to false for zero visual overhead.
 const SHOW_OVERLAY = true;
 // Tools that don't act on a page, so they shouldn't light it up.
@@ -112,13 +112,14 @@ async function resolveTab(p) {
       if (p.tabId != null) throw new Error(`Tab ${p.tabId} not found`);
     }
   }
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (!tab) throw new Error('No active tab. Use tab_new.');
-  setCurrentTab(p, tab.id);
-  return tab;
+  // Never fall back to the user's active tab: it may belong to them or another agent's group.
+  throw new Error(
+    'This session has no tab yet. Use navigate or tab_new to open one in the agy-browser group, ' +
+      'or tabs_list + tab_select to work in an existing tab.',
+  );
 }
 
-// Put a tab in this window's "agy" group, creating the group if needed.
+// Put a tab in this window's "agy-browser" group, creating the group if needed.
 async function addToGroup(tab) {
   try {
     const [group] = await chrome.tabGroups.query({ windowId: tab.windowId, title: GROUP_TITLE });
@@ -282,11 +283,11 @@ function normalizeUrl(url) {
 const TOOLS = {
   async tabs_list(p) {
     const tabs = await chrome.tabs.query({});
-    const agyGroups = new Set((await chrome.tabGroups.query({ title: GROUP_TITLE })).map((g) => g.id));
+    const groupNames = new Map((await chrome.tabGroups.query({})).map((g) => [g.id, g.title || '(unnamed)']));
     const lines = tabs.map(
       (t) =>
         `${t.id === currentTab(p) ? '*' : ' '} ${t.id}  ${t.title || '(no title)'}  ${t.url || ''}` +
-        `${t.active ? '  [active]' : ''}${agyGroups.has(t.groupId) ? '  [agy]' : ''}`,
+        `${t.active ? '  [active]' : ''}${groupNames.has(t.groupId) ? `  [group: ${groupNames.get(t.groupId)}]` : ''}`,
     );
     return text(lines.join('\n') || 'No tabs');
   },
@@ -315,7 +316,7 @@ const TOOLS = {
   },
 
   async navigate(p) {
-    // With no tab of its own yet, open one in the agy group instead of taking over the user's tab.
+    // With no tab of its own yet, open one in the agy-browser group instead of taking over the user's tab.
     if (p.tabId == null && currentTab(p) == null &&!['back', 'forward', 'reload'].includes(p.url)) {
       return TOOLS.tab_new(p);
     }
@@ -645,7 +646,7 @@ function pageSnapshot(opts) {
 }
 
 function pageOverlay(cmd) {
-  const COLOR = '37, 99, 235'; // matches the blue "agy" tab group
+  const COLOR = '37, 99, 235'; // matches the blue "agy-browser" tab group
   const IDLE_MS = 8000;
   let o = window.__agyOverlay;
   if (!o?.host.isConnected) {

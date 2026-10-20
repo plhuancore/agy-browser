@@ -9,7 +9,7 @@ The `agy-browser` MCP server controls the user's own Chrome through the "agy bro
 
 ## Core loop
 
-1. **Open**: `tab_new { url }` for a fresh tab. It goes into the blue **agy** tab group and becomes the current tab. To work in a tab the user already has open, use `tabs_list` then `tab_select` (add `group: true` only if the user wants it moved into the group). `navigate` reuses the current tab and opens a new agy tab when there is none yet, so it never takes over the user's tab by surprise.
+1. **Open**: `tab_new { url }` for a fresh tab. It goes into the blue **agy-browser** tab group and becomes the current tab. To work in a tab the user already has open, use `tabs_list` then `tab_select` (add `group: true` only if the user wants it moved into the group). `navigate` reuses the current tab and opens a new agy-browser tab when this session has none yet. Tools never fall back to the tab the user is looking at; without a tab of your own they return an error telling you to open one.
 2. **Look**: `snapshot` returns a text outline with refs:
    ```
    textbox "Email" [ref=e2]

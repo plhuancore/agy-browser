@@ -48,7 +48,7 @@ Sau khi sửa `extension/background.js`, bấm **Reload** extension trong `chrom
 
 | Tool | Việc |
 |---|---|
-| `tabs_list`, `tab_new`, `tab_select`, `tab_close` | Quản lý tab. Tab agy mở được gom vào tab group **agy**; các tool khác mặc định chạy trên tab hiện tại |
+| `tabs_list`, `tab_new`, `tab_select`, `tab_close` | Quản lý tab. Tab agy mở được gom vào tab group **agy-browser**; các tool khác mặc định chạy trên tab hiện tại |
 | `navigate` | URL, hoặc `back` / `forward` / `reload`; chờ trang load xong |
 | `snapshot` | Dàn ý trang kèm ref (`mode: all` để có thêm text) |
 | `click` | Theo `ref` hoặc toạ độ `x,y` (CSS px, khớp với screenshot) |
