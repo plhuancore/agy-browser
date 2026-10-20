@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "agy browser bridge",
+  "version": "0.1.0",
+  "description": "Lets the agy-browser MCP server drive this Chrome through chrome.debugger.",
+  "permissions": ["debugger", "tabs", "tabGroups", "scripting", "alarms", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "agy browser bridge" }
+}

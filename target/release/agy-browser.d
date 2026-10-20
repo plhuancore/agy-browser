@@ -1,0 +1,1 @@
+/Users/huanpham/MyProjects/agy-browser/target/release/agy-browser: /Users/huanpham/MyProjects/agy-browser/src/bridge.rs /Users/huanpham/MyProjects/agy-browser/src/main.rs /Users/huanpham/MyProjects/agy-browser/src/tools.rs
