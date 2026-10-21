@@ -145,6 +145,9 @@ async function attach(tabId) {
   }
   attached.add(tabId);
   await cdp(tabId, 'Runtime.enable');
+  // agy works in background tabs so the user keeps their focus; make the page behave as if
+  // focused anyway (document.hasFocus(), focus/blur handlers, :focus styles).
+  await cdp(tabId, 'Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
 }
 
 chrome.debugger.onDetach.addListener(({ tabId }) => attached.delete(tabId));
@@ -274,6 +277,34 @@ async function blobToBase64(blob) {
   return btoa(s);
 }
 
+async function captureViewport(tab) {
+  const { cssLayoutViewport: vp } = await cdp(tab.id, 'Page.getLayoutMetrics');
+  // Keep the glow and cursor out of what the agent sees.
+  await overlay(tab.id, { type: 'conceal' });
+  let shot;
+  try {
+    shot = await cdp(tab.id, 'Page.captureScreenshot', { format: 'jpeg', quality: 80 });
+  } finally {
+    overlay(tab.id, { type: 'reveal' });
+  }
+  const w = Math.round(vp.clientWidth);
+  const h = Math.round(vp.clientHeight);
+  let data = shot.data;
+  const bitmap = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${data}`)).blob());
+  if (bitmap.width !== w) {
+    // Retina captures are 2x; resize to CSS pixels so coordinates match click x/y.
+    const canvas = new OffscreenCanvas(w, h);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    data = await blobToBase64(await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.75 }));
+  }
+  return {
+    content: [
+      { type: 'image', data, mimeType: 'image/jpeg' },
+      { type: 'text', text: `Viewport ${w}x${h} CSS px of ${tab.url}` },
+    ],
+  };
+}
+
 function normalizeUrl(url) {
   return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
 }
@@ -293,7 +324,8 @@ const TOOLS = {
   },
 
   async tab_new(p) {
-    const tab = await chrome.tabs.create({ url: p.url ? normalizeUrl(p.url) : undefined, active: true });
+    // Opened in the background: the user keeps working where they are.
+    const tab = await chrome.tabs.create({ url: p.url ? normalizeUrl(p.url) : undefined, active: !!p.activate });
     setCurrentTab(p, tab.id);
     await addToGroup(tab);
     if (p.url) await waitLoad(tab.id);
@@ -302,10 +334,11 @@ const TOOLS = {
   },
 
   async tab_select(p) {
-    const tab = await chrome.tabs.update(p.tabId, { active: true });
-    await chrome.windows.update(tab.windowId, { focused: true });
+    // Only switches which tab this session acts on; it doesn't bring the tab to the front.
+    const tab = await chrome.tabs.get(p.tabId);
     setCurrentTab(p, tab.id);
     if (p.group) await addToGroup(tab);
+    if (p.activate) await chrome.tabs.update(tab.id, { active: true });
     return text(`Current tab is ${tab.id}: ${tab.title}`);
   },
 
@@ -413,34 +446,21 @@ const TOOLS = {
 
   async screenshot(p) {
     const tab = await resolveTab(p);
-    // Background tabs don't paint, so capture would hang.
-    if (!tab.active) await chrome.tabs.update(tab.id, { active: true });
     await attach(tab.id);
-    const { cssLayoutViewport: vp } = await cdp(tab.id, 'Page.getLayoutMetrics');
-    // Keep the glow and cursor out of what the agent sees.
-    await overlay(tab.id, { type: 'conceal' });
-    let shot;
+    // Background tabs don't paint, so capturing one would hang. Bring it forward just for the
+    // capture and hand the window straight back to the tab the user was on.
+    let restoreTabId = null;
+    if (!tab.active) {
+      const [userTab] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+      restoreTabId = userTab?.id ?? null;
+      await chrome.tabs.update(tab.id, { active: true });
+      await sleep(150);
+    }
     try {
-      shot = await cdp(tab.id, 'Page.captureScreenshot', { format: 'jpeg', quality: 80 });
+      return await captureViewport(tab);
     } finally {
-      overlay(tab.id, { type: 'reveal' });
+      if (restoreTabId != null) chrome.tabs.update(restoreTabId, { active: true }).catch(() => {});
     }
-    const w = Math.round(vp.clientWidth);
-    const h = Math.round(vp.clientHeight);
-    let data = shot.data;
-    const bitmap = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${data}`)).blob());
-    if (bitmap.width !== w) {
-      // Retina captures are 2x; resize to CSS pixels so coordinates match click x/y.
-      const canvas = new OffscreenCanvas(w, h);
-      canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
-      data = await blobToBase64(await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.75 }));
-    }
-    return {
-      content: [
-        { type: 'image', data, mimeType: 'image/jpeg' },
-        { type: 'text', text: `Viewport ${w}x${h} CSS px of ${tab.url}` },
-      ],
-    };
   },
 
   async get_text(p) {

@@ -34,17 +34,25 @@ pub fn list() -> Vec<Value> {
         }),
         json!({
             "name": "tab_new",
-            "description": "Open a new tab in the \"agy-browser\" tab group (optionally at a URL), wait for it to load and make it the current tab.",
-            "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } } },
+            "description": "Open a new background tab in the \"agy-browser\" tab group (optionally at a URL), wait for it to load and make it the current tab. \
+                            It does not take the user's focus.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string" },
+                    "activate": { "type": "boolean", "description": "Bring the tab to the front. Only when the user wants to watch." },
+                },
+            },
         }),
         json!({
             "name": "tab_select",
-            "description": "Make a tab the current tab and bring it to the front.",
+            "description": "Make a tab the current tab for this session (tools act on it). Does not bring it to the front.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "tabId": { "type": "integer" },
                     "group": { "type": "boolean", "description": "Also move the tab into the \"agy-browser\" tab group." },
+                    "activate": { "type": "boolean", "description": "Also bring the tab to the front. Only when the user asks." },
                 },
                 "required": ["tabId"],
             },
@@ -128,7 +136,8 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "screenshot",
-            "JPEG of the visible viewport, sized in CSS pixels so its coordinates work with click x/y.",
+            "JPEG of the tab's viewport, sized in CSS pixels so its coordinates work with click x/y. \
+             A background tab is brought forward for ~0.2s to paint, then the user's tab is restored.",
             json!({}),
             &[],
         ),

@@ -41,6 +41,7 @@ Actions do not return a snapshot. Take one yourself when you need to see the new
 - `evaluate` takes an expression; wrap statements in an IIFE: `(() => { ...; return x })()`. Promises are awaited.
 - `screenshot` coordinates are CSS pixels and match `click { x, y }` directly.
 - `scroll { ref }` without a direction scrolls that element into view.
+- agy works in **background tabs** and never takes the user's focus: `tab_new` opens in the background and `tab_select` only changes which tab you act on. Don't pass `activate: true` unless the user asks to watch. `screenshot` of a background tab flashes it for ~0.2s, which is one more reason to prefer `snapshot`.
 - Every tool accepts `tabId`; otherwise it acts on the current tab (the last one this session opened or selected). Each agy session has its own current tab, so parallel agents don't interfere; still close tabs you opened with `tab_close` when done.
 
 ## Refs
