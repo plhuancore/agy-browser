@@ -4,6 +4,7 @@
 
 const PORT = 8765;
 const CONSOLE_LIMIT = 300;
+const NETWORK_LIMIT = 500;
 const GROUP_TITLE = 'agy-browser';
 // Glowing border + simulated cursor on tabs agy is driving. Set to false for zero visual overhead.
 const SHOW_OVERLAY = true;
@@ -26,6 +27,8 @@ function setCurrentTab(p, id) {
 }
 const attached = new Set();
 const consoleLogs = new Map(); // tabId -> [{ level, text }]
+// tabId -> { seq, byId: Map("n12" -> entry), byRequest: Map(CDP requestId -> entry) }
+const networkLogs = new Map();
 
 // ---------------------------------------------------------------- connection
 
@@ -105,9 +108,8 @@ async function resolveTab(p) {
   const id = p.tabId ?? currentTab(p);
   if (id != null) {
     try {
-      const tab = await chrome.tabs.get(id);
-      if (tab.id !== currentTab(p)) setCurrentTab(p, tab.id);
-      return tab;
+      // An explicit tabId targets that call only; the current tab changes via tab_new / tab_select.
+      return await chrome.tabs.get(id);
     } catch {
       if (p.tabId != null) throw new Error(`Tab ${p.tabId} not found`);
     }
@@ -145,6 +147,7 @@ async function attach(tabId) {
   }
   attached.add(tabId);
   await cdp(tabId, 'Runtime.enable');
+  await cdp(tabId, 'Network.enable', { maxPostDataSize: 65536 }).catch(() => {});
   // agy works in background tabs so the user keeps their focus; make the page behave as if
   // focused anyway (document.hasFocus(), focus/blur handlers, :focus styles).
   await cdp(tabId, 'Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
@@ -154,6 +157,7 @@ chrome.debugger.onDetach.addListener(({ tabId }) => attached.delete(tabId));
 chrome.tabs.onRemoved.addListener((tabId) => {
   attached.delete(tabId);
   consoleLogs.delete(tabId);
+  networkLogs.delete(tabId);
   const sessions = Object.keys(currentTabs).filter((s) => currentTabs[s] === tabId);
   for (const s of sessions) delete currentTabs[s];
   if (sessions.length) chrome.storage.session.set({ currentTabs });
@@ -163,6 +167,7 @@ const fmtArg = (a) =>
   a.value !== undefined ? (typeof a.value === 'string' ? a.value : JSON.stringify(a.value)) : a.description ?? a.type;
 
 chrome.debugger.onEvent.addListener(({ tabId }, method, p) => {
+  if (method.startsWith('Network.')) return onNetworkEvent(tabId, method, p);
   let entry;
   if (method === 'Runtime.consoleAPICalled') entry = { level: p.type, text: p.args.map(fmtArg).join(' ') };
   else if (method === 'Runtime.exceptionThrown')
@@ -173,6 +178,71 @@ chrome.debugger.onEvent.addListener(({ tabId }, method, p) => {
   if (list.length > CONSOLE_LIMIT) list.shift();
   consoleLogs.set(tabId, list);
 });
+
+function onNetworkEvent(tabId, method, p) {
+  let log = networkLogs.get(tabId);
+  if (!log) networkLogs.set(tabId, (log = { seq: 0, byId: new Map(), byRequest: new Map() }));
+  if (method === 'Network.requestWillBeSent') {
+    const prev = log.byRequest.get(p.requestId);
+    if (prev && p.redirectResponse) {
+      // Redirects reuse the requestId: close out the hop and start a new entry.
+      prev.status = p.redirectResponse.status;
+      prev.responseHeaders = p.redirectResponse.headers;
+      prev.end = p.timestamp;
+      prev.redirectedTo = p.request.url;
+    }
+    const entry = {
+      id: `n${++log.seq}`,
+      requestId: p.requestId,
+      method: p.request.method,
+      url: p.request.url,
+      type: p.type || 'Other',
+      requestHeaders: p.request.headers,
+      postData: p.request.postData,
+      hasPostData: p.request.hasPostData,
+      start: p.timestamp,
+    };
+    log.byId.set(entry.id, entry);
+    log.byRequest.set(p.requestId, entry);
+    if (log.byId.size > NETWORK_LIMIT) log.byId.delete(log.byId.keys().next().value);
+    return;
+  }
+  const entry = log.byRequest.get(p.requestId);
+  if (!entry) return;
+  if (method === 'Network.responseReceived') {
+    entry.status = p.response.status;
+    entry.statusText = p.response.statusText;
+    entry.responseHeaders = p.response.headers;
+    entry.mimeType = p.response.mimeType;
+    entry.cached = p.response.fromDiskCache || p.response.fromServiceWorker;
+  } else if (method === 'Network.requestWillBeSentExtraInfo') {
+    // Carries the headers actually sent, including cookies.
+    entry.requestHeaders = { ...entry.requestHeaders, ...p.headers };
+  } else if (method === 'Network.loadingFinished') {
+    entry.end = p.timestamp;
+    entry.size = p.encodedDataLength;
+  } else if (method === 'Network.loadingFailed') {
+    entry.end = p.timestamp;
+    entry.error = p.canceled ? 'canceled' : p.blockedReason ? `blocked: ${p.blockedReason}` : p.errorText;
+  }
+}
+
+const SECRET_HEADERS = /^(cookie|set-cookie|authorization|proxy-authorization|x-api-key|x-auth-token|x-csrf-token)$/i;
+
+function fmtHeaders(headers = {}, showSecrets) {
+  return Object.entries(headers)
+    .map(([k, v]) => `  ${k}: ${!showSecrets && SECRET_HEADERS.test(k) ? `<${String(v).length} chars hidden>` : v}`)
+    .join('\n');
+}
+
+function fmtSize(bytes) {
+  if (bytes == null) return '';
+  return bytes < 1024 ? `${bytes}B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)}KB` : `${(bytes / 1048576).toFixed(1)}MB`;
+}
+
+function clip(s, max) {
+  return s.length > max ? `${s.slice(0, max)}\n… truncated (${s.length} chars total)` : s;
+}
 
 async function inPage(tabId, func, ...args) {
   const [res] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
@@ -325,10 +395,16 @@ const TOOLS = {
 
   async tab_new(p) {
     // Opened in the background: the user keeps working where they are.
-    const tab = await chrome.tabs.create({ url: p.url ? normalizeUrl(p.url) : undefined, active: !!p.activate });
+    const tab = await chrome.tabs.create({ url: 'about:blank', active: !!p.activate });
     setCurrentTab(p, tab.id);
     await addToGroup(tab);
-    if (p.url) await waitLoad(tab.id);
+    if (p.url) {
+      // Attach before loading so network and console capture include the page's first requests.
+      await attach(tab.id).catch(() => {});
+      const loaded = waitLoad(tab.id);
+      await chrome.tabs.update(tab.id, { url: normalizeUrl(p.url) });
+      await loaded;
+    }
     const t = await chrome.tabs.get(tab.id);
     return text(`Opened tab ${t.id}: ${t.title} (${t.url || t.pendingUrl})`);
   },
@@ -354,6 +430,7 @@ const TOOLS = {
       return TOOLS.tab_new(p);
     }
     const tab = await resolveTab(p);
+    await attach(tab.id).catch(() => {}); // capture the new page's requests from the start
     const loaded = waitLoad(tab.id);
     if (p.url === 'back') await chrome.tabs.goBack(tab.id);
     else if (p.url === 'forward') await chrome.tabs.goForward(tab.id);
@@ -493,6 +570,75 @@ const TOOLS = {
     if (p.clear) consoleLogs.delete(tab.id);
     const out = list.map((e) => `[${e.level}] ${e.text}`).join('\n');
     return text(out || (firstTime ? 'Started capturing console for this tab; call again after reproducing.' : 'No console messages'));
+  },
+
+  async network_requests(p) {
+    const tab = await resolveTab(p);
+    const firstTime = !attached.has(tab.id);
+    await attach(tab.id);
+    const log = networkLogs.get(tab.id);
+    let list = log ? [...log.byId.values()] : [];
+    if (!p.all && !p.type) list = list.filter((e) => ['Fetch', 'XHR', 'Document', 'EventSource', 'WebSocket'].includes(e.type));
+    if (p.type) list = list.filter((e) => e.type.toLowerCase() === p.type.toLowerCase());
+    if (p.pattern) {
+      const re = new RegExp(p.pattern, 'i');
+      list = list.filter((e) => re.test(e.url));
+    }
+    if (p.failed) list = list.filter((e) => e.error || e.status >= 400);
+    list = list.slice(-(p.limit || 50));
+    if (p.clear && log) {
+      log.byId.clear();
+      log.byRequest.clear();
+    }
+    const lines = list.map((e) => {
+      const status = e.error ? `ERR(${e.error})` : e.status ?? 'pending';
+      const ms = e.end != null ? `${Math.round((e.end - e.start) * 1000)}ms` : '';
+      const extra = [ms, fmtSize(e.size), e.cached ? 'cached' : '', e.redirectedTo ? `-> ${e.redirectedTo}` : '']
+        .filter(Boolean)
+        .join(', ');
+      return `${e.id} ${e.method} ${status} ${e.type} ${clip(e.url, 300)}${extra ? `  (${extra})` : ''}`;
+    });
+    if (lines.length) return text(`${lines.join('\n')}\n\nUse network_request { id } for headers and bodies.`);
+    return text(
+      firstTime
+        ? 'Started capturing network for this tab. Reproduce the action (or navigate { url: "reload" }) and call again.'
+        : 'No matching requests' + (p.all ? '' : ' (only fetch/xhr/document shown; pass all: true for scripts, images, …)'),
+    );
+  },
+
+  async network_request(p) {
+    const tab = await resolveTab(p);
+    const entry = networkLogs.get(tab.id)?.byId.get(p.id);
+    if (!entry) throw new Error(`No request ${p.id} on this tab; list them with network_requests`);
+    const max = p.maxBodyChars || 20000;
+    const out = [
+      `${entry.method} ${entry.url}`,
+      `Status: ${entry.error ? `failed (${entry.error})` : `${entry.status ?? 'pending'} ${entry.statusText || ''}`}  Type: ${entry.type}` +
+        `${entry.mimeType ? `  MIME: ${entry.mimeType}` : ''}${entry.end != null ? `  Time: ${Math.round((entry.end - entry.start) * 1000)}ms` : ''}`,
+      '',
+      'Request headers:',
+      fmtHeaders(entry.requestHeaders, p.showSecrets),
+    ];
+    let postData = entry.postData;
+    if (!postData && entry.hasPostData) {
+      postData = (await cdp(tab.id, 'Network.getRequestPostData', { requestId: entry.requestId }).catch(() => null))?.postData;
+    }
+    if (postData) out.push('', 'Request body:', clip(postData, max));
+    if (entry.responseHeaders) out.push('', 'Response headers:', fmtHeaders(entry.responseHeaders, p.showSecrets));
+    if (entry.status != null && !entry.redirectedTo && p.body !== false) {
+      const body = await cdp(tab.id, 'Network.getResponseBody', { requestId: entry.requestId }).catch((e) => ({ error: e.message }));
+      if (body.error) out.push('', `Response body: unavailable (${body.error})`);
+      else if (body.base64Encoded && !/json|text|xml|javascript|html/i.test(entry.mimeType || '')) {
+        out.push('', `Response body: binary ${entry.mimeType || ''}, ${fmtSize(Math.floor((body.body.length * 3) / 4))}`);
+      } else {
+        let b = body.base64Encoded ? new TextDecoder().decode(Uint8Array.from(atob(body.body), (c) => c.charCodeAt(0))) : body.body;
+        if (/json/i.test(entry.mimeType || '')) {
+          try { b = JSON.stringify(JSON.parse(b), null, 2); } catch {}
+        }
+        out.push('', 'Response body:', clip(b, max));
+      }
+    }
+    return text(out.join('\n'));
   },
 
   async wait_for(p) {

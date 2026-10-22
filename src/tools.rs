@@ -168,6 +168,32 @@ pub fn list() -> Vec<Value> {
             &[],
         ),
         tool(
+            "network_requests",
+            "Requests the tab has made since agy-browser attached to it (tabs opened by tab_new/navigate are captured \
+             from the first request). Shows fetch/XHR/document by default. Each line has an id for network_request.",
+            json!({
+                "pattern": { "type": "string", "description": "Regex matched against the URL." },
+                "type": { "type": "string", "description": "Resource type: fetch, xhr, document, script, stylesheet, image, font, websocket, ..." },
+                "all": { "type": "boolean", "description": "Include every resource type (scripts, images, fonts, ...)." },
+                "failed": { "type": "boolean", "description": "Only errors and HTTP status >= 400." },
+                "limit": { "type": "integer", "description": "Most recent N (default 50)." },
+                "clear": { "type": "boolean", "description": "Empty the log after listing." },
+            }),
+            &[],
+        ),
+        tool(
+            "network_request",
+            "Full detail of one request from network_requests: status, timing, request/response headers, request body \
+             and response body (JSON pretty-printed). Cookie/Authorization-like headers are hidden unless showSecrets.",
+            json!({
+                "id": { "type": "string", "description": "Id from network_requests, e.g. n12." },
+                "body": { "type": "boolean", "description": "Include the response body (default true)." },
+                "maxBodyChars": { "type": "integer", "description": "Truncate bodies (default 20000)." },
+                "showSecrets": { "type": "boolean", "description": "Show cookie and auth header values." },
+            }),
+            &["id"],
+        ),
+        tool(
             "wait_for",
             "Wait until `text` appears on the page, or for `ms` milliseconds.",
             json!({

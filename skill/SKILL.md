@@ -36,13 +36,14 @@ Actions do not return a snapshot. Take one yourself when you need to see the new
 | Element without a ref (canvas, map) | `screenshot`, then `click { x, y }` | |
 | Data inside the page / app state | `evaluate { code }` | scraping by snapshot |
 | JS errors | `console_logs` | |
+| API calls, status codes, payloads | `network_requests` then `network_request { id }` | `evaluate` with fetch |
 
 - `fill` values: text for inputs, option value or label for selects, `true`/`false` for checkboxes and radios.
 - `evaluate` takes an expression; wrap statements in an IIFE: `(() => { ...; return x })()`. Promises are awaited.
 - `screenshot` coordinates are CSS pixels and match `click { x, y }` directly.
 - `scroll { ref }` without a direction scrolls that element into view.
 - agy works in **background tabs** and never takes the user's focus: `tab_new` opens in the background and `tab_select` only changes which tab you act on. Don't pass `activate: true` unless the user asks to watch. `screenshot` of a background tab flashes it for ~0.2s, which is one more reason to prefer `snapshot`.
-- Every tool accepts `tabId`; otherwise it acts on the current tab (the last one this session opened or selected). Each agy session has its own current tab, so parallel agents don't interfere; still close tabs you opened with `tab_close` when done.
+- Every tool accepts `tabId` to target another tab for that one call (it doesn't change your current tab); otherwise it acts on the current tab (the last one this session opened or selected with `tab_new` / `tab_select`). Each agy session has its own current tab, so parallel agents don't interfere; still close tabs you opened with `tab_close` when done.
 
 ## Refs
 
@@ -53,9 +54,9 @@ Actions do not return a snapshot. Take one yourself when you need to see the new
 
 ## Debugging a web app
 
-1. Call `console_logs` once early. Capture starts when the extension first acts on a tab, so the first call may only start capturing.
+1. Console and network capture start when agy-browser attaches to a tab. Tabs you open with `tab_new`/`navigate` are captured from their first request; for a tab the user opened, call `network_requests` once, then reproduce or `navigate { url: "reload" }`.
 2. Reproduce the bug with click/fill/type.
-3. Call `console_logs { pattern: "error|warn" }`, and use `evaluate` to inspect state (`localStorage`, globals, `fetch` checks).
+3. Call `console_logs { pattern: "error|warn" }` and `network_requests { failed: true }`; open the suspicious call with `network_request { id }` to read its payload and response. Use `evaluate` to inspect state (`localStorage`, globals).
 4. `navigate { url: "reload" }` to retry with a clean page.
 
 ## Safety

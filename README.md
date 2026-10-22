@@ -55,6 +55,7 @@ Sau khi sửa `extension/background.js`, bấm **Reload** extension trong `chrom
 | `fill` | Điền input/select/checkbox, một hoặc nhiều trường (`fields`) |
 | `type`, `press_key` | Gõ phím thật qua CDP (`Meta+a`, `Tab Tab Enter`…) |
 | `scroll`, `screenshot`, `get_text`, `evaluate`, `console_logs`, `wait_for` | |
+| `network_requests`, `network_request` | Danh sách request (mặc định fetch/XHR/document, lọc theo regex, type, lỗi) và chi tiết header/body của từng request. Header cookie/authorization bị ẩn trừ khi truyền `showSecrets` |
 
 ## Cấu hình
 
@@ -70,8 +71,15 @@ Khi agy điều khiển một tab, viền tab đó phát sáng và có con trỏ
 - Đổi màu: sửa `COLOR` trong hàm `pageOverlay` (`extension/background.js`).
 - Tắt hẳn: đặt `SHOW_OVERLAY = false`. Mỗi lần click sẽ nhanh hơn khoảng 190ms vì không phải đợi con trỏ di chuyển.
 
+## Test
+
+```sh
+tests/run.sh
+```
+
+Lệnh này chạy 22 bài kiểm tra end-to-end (tab và group, focus, form, phân tách phiên, console, network, chuyển giao hub) trên Chrome for Testing headless. Lần đầu nó tự tải Chrome for Testing vào `tests/.cache`. Test dùng cổng riêng (`HUB_PORT=8797`, `SITE_PORT=8811`) nên không ảnh hưởng phiên agy đang chạy.
+
 ## Giới hạn hiện tại
 
 - Snapshot chưa đi vào iframe; shadow DOM dạng open thì có.
-- Chưa có tool đọc network request.
 - Khi đang thao tác, Chrome hiện thanh "agy browser bridge started debugging this browser". Đây là hành vi bắt buộc của `chrome.debugger` và Claude in Chrome cũng bị.

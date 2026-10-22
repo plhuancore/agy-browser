@@ -1,0 +1,3 @@
+<!doctype html><title>Net Test</title>
+<button onclick="fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer secret-token-123'},body:JSON.stringify({plan:'pro',qty:2})})">Save</button>
+<script>fetch('/data.json').then(r=>r.json()).then(d=>document.title='Net Test '+d.user.name)</script>
