@@ -114,6 +114,22 @@ check('auth headers are hidden by default', !postDetail.out.includes('secret-tok
 const secrets = await a.call('network_request', { id: postId, body: false, showSecrets: true });
 check('showSecrets reveals them', secrets.out.includes('Bearer secret-token-123'), secrets.out);
 
+// --- dedicated window
+const winTab = await a.call('tab_new', { url: `${BASE}/page2.html`, newWindow: true });
+const winTabId = winTab.out.match(/tab (\d+)/)?.[1];
+tabs = await a.call('tabs_list');
+check('newWindow opens the tab in the agy-browser window', new RegExp(`${winTabId} .*\\[active\\].*\\[window: agy-browser\\]`).test(tabs.out), tabs.out);
+check("newWindow leaves the user's tab active", /about:blank\s+about:blank\s+\[active\]\n/.test(tabs.out + '\n'), tabs.out);
+const winTab2 = await a.call('tab_new', { url: `${BASE}/index.html`, newWindow: true });
+tabs = await a.call('tabs_list');
+const winCount = tabs.out.split('\n').filter((l) => l.includes('[window: agy-browser]')).length;
+check('later newWindow tabs reuse the same window', winCount === 2, tabs.out);
+const winShot = await a.call('screenshot');
+check('screenshot works in the agy-browser window', winShot.content[0]?.type === 'image', winShot.out);
+await a.call('tab_close', { tabId: Number(winTabId) });
+await a.call('tab_close');
+await a.call('tab_select', { tabId: Number(tabs.out.match(/(\d+)\s+Net Test/)?.[1]) });
+
 // --- per-session tabs
 await b.call('navigate', { url: `${BASE}/page2.html` });
 const aPath = await a.call('evaluate', { code: 'location.pathname' });

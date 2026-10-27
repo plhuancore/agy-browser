@@ -63,8 +63,17 @@ Sau khi sửa `extension/background.js`, bấm **Reload** extension trong `chrom
 |---|---|---|
 | `AGY_BROWSER_PORT` | `8765` | Nếu đổi thì sửa luôn `PORT` trong `extension/background.js` |
 | `AGY_BROWSER_EXTENSION_ID` | (trống) | Chỉ nhận extension có ID này |
+| `AGY_BROWSER_NEW_WINDOW` | (trống) | Đặt `1` để tab mới mặc định mở trong cửa sổ riêng của agy-browser (giống truyền `newWindow: true`) |
 
 ## Hiệu ứng khi điều khiển
+
+### Cửa sổ riêng
+
+Mặc định, tab của agy mở ở chế độ nền ngay trong cửa sổ bạn đang dùng. Với `tab_new { newWindow: true }` (hoặc biến môi trường `AGY_BROWSER_NEW_WINDOW=1`), tab sẽ mở trong một cửa sổ riêng tên agy-browser:
+
+- Cửa sổ được tạo mà không lấy focus, và mọi phiên agy dùng chung cửa sổ này.
+- Tab của agy được active trong cửa sổ đó, nên animation vẫn chạy và chụp `screenshot` không làm màn hình của bạn chớp.
+- Không nên thu nhỏ (minimize) cửa sổ này: Chrome sẽ ngừng vẽ trang và `screenshot` báo lỗi sau 8 giây.
 
 Khi agy điều khiển một tab, viền tab đó phát sáng và có con trỏ giả di chuyển tới chỗ click, kèm hiệu ứng gợn sóng. Viền sáng tự tắt sau 8 giây không có thao tác. Overlay không lọt vào `snapshot`, `get_text` hay `screenshot`, cũng không chặn click.
 

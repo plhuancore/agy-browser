@@ -41,6 +41,7 @@ pub fn list() -> Vec<Value> {
                 "properties": {
                     "url": { "type": "string" },
                     "activate": { "type": "boolean", "description": "Bring the tab to the front. Only when the user wants to watch." },
+                    "newWindow": { "type": "boolean", "description": "Open it in agy-browser's own window (created unfocused, shared by all sessions) instead of the user's window." },
                 },
             },
         }),
@@ -62,7 +63,10 @@ pub fn list() -> Vec<Value> {
             "navigate",
             "Go to a URL in the current tab and wait for the page to load (opens a new tab in the agy-browser group if this session has none yet). \
              Also accepts \"back\", \"forward\" or \"reload\".",
-            json!({ "url": { "type": "string" } }),
+            json!({
+                "url": { "type": "string" },
+                "newWindow": { "type": "boolean", "description": "When this opens a new tab: put it in agy-browser's own window." },
+            }),
             &["url"],
         ),
         tool(

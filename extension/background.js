@@ -16,8 +16,11 @@ let ws = null;
 // agents don't steal each other's tab. Tools receive their session as p._session.
 const currentTabs = {};
 // Chrome suspends idle service workers; keep current tabs across restarts.
-const restored = chrome.storage.session.get('currentTabs').then((s) => {
+// Shared window for tabs opened with newWindow, created unfocused on first use.
+let agyWindowId = null;
+const restored = chrome.storage.session.get(['currentTabs', 'agyWindowId']).then((s) => {
   for (const [session, tabId] of Object.entries(s.currentTabs || {})) currentTabs[session] ??= tabId;
+  agyWindowId ??= s.agyWindowId ?? null;
 });
 const currentTab = (p) => currentTabs[p._session] ?? null;
 function setCurrentTab(p, id) {
@@ -122,6 +125,30 @@ async function resolveTab(p) {
 }
 
 // Put a tab in this window's "agy-browser" group, creating the group if needed.
+// The agy-browser window, created without taking focus. Returns the window and, when it was
+// just created, its initial blank tab (to use instead of opening a second one).
+async function agyWindow() {
+  const existing = agyWindowId != null && (await chrome.windows.get(agyWindowId).catch(() => null));
+  if (existing) return { window: existing, blankTab: null };
+  const last = await chrome.windows.getLastFocused().catch(() => null);
+  const window = await chrome.windows.create({
+    url: 'about:blank',
+    focused: false,
+    type: 'normal',
+    width: last?.width,
+    height: last?.height,
+  });
+  agyWindowId = window.id;
+  chrome.storage.session.set({ agyWindowId });
+  return { window, blankTab: window.tabs[0] };
+}
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId !== agyWindowId) return;
+  agyWindowId = null;
+  chrome.storage.session.set({ agyWindowId });
+});
+
 async function addToGroup(tab) {
   try {
     const [group] = await chrome.tabGroups.query({ windowId: tab.windowId, title: GROUP_TITLE });
@@ -353,7 +380,12 @@ async function captureViewport(tab) {
   await overlay(tab.id, { type: 'conceal' });
   let shot;
   try {
-    shot = await cdp(tab.id, 'Page.captureScreenshot', { format: 'jpeg', quality: 80 });
+    shot = await Promise.race([
+      cdp(tab.id, 'Page.captureScreenshot', { format: 'jpeg', quality: 80 }),
+      sleep(8000).then(() => {
+        throw new Error('Screenshot timed out: the tab is not painting (its window may be minimized). Ask the user to restore it, or use snapshot.');
+      }),
+    ]);
   } finally {
     overlay(tab.id, { type: 'reveal' });
   }
@@ -388,14 +420,24 @@ const TOOLS = {
     const lines = tabs.map(
       (t) =>
         `${t.id === currentTab(p) ? '*' : ' '} ${t.id}  ${t.title || '(no title)'}  ${t.url || ''}` +
-        `${t.active ? '  [active]' : ''}${groupNames.has(t.groupId) ? `  [group: ${groupNames.get(t.groupId)}]` : ''}`,
+        `${t.active ? '  [active]' : ''}${groupNames.has(t.groupId) ? `  [group: ${groupNames.get(t.groupId)}]` : ''}` +
+        `${t.windowId === agyWindowId ? '  [window: agy-browser]' : ''}`,
     );
     return text(lines.join('\n') || 'No tabs');
   },
 
   async tab_new(p) {
-    // Opened in the background: the user keeps working where they are.
-    const tab = await chrome.tabs.create({ url: 'about:blank', active: !!p.activate });
+    let tab;
+    if (p.newWindow) {
+      // In agy's own unfocused window the tab can be active (it paints, animates and screenshots
+      // without flashing) while the user's window keeps focus.
+      const { window, blankTab } = await agyWindow();
+      tab = blankTab ?? (await chrome.tabs.create({ windowId: window.id, url: 'about:blank', active: true }));
+      if (p.activate) await chrome.windows.update(window.id, { focused: true });
+    } else {
+      // Opened in the background: the user keeps working where they are.
+      tab = await chrome.tabs.create({ url: 'about:blank', active: !!p.activate });
+    }
     setCurrentTab(p, tab.id);
     await addToGroup(tab);
     if (p.url) {

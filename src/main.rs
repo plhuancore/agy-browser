@@ -60,7 +60,11 @@ async fn main() -> anyhow::Result<()> {
                 "tools/list" => ok(id, json!({ "tools": tools::list() })),
                 "tools/call" => {
                     let name = params["name"].as_str().unwrap_or_default();
-                    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                    let mut args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                    // AGY_BROWSER_NEW_WINDOW=1 makes agy's own window the default for new tabs.
+                    if new_window_default() && matches!(name, "tab_new" | "navigate") && args.get("newWindow").is_none() {
+                        args["newWindow"] = json!(true);
+                    }
                     let result = match bridge.call(name, args).await {
                         Ok(v) => v,
                         Err(e) => json!({
@@ -80,6 +84,10 @@ async fn main() -> anyhow::Result<()> {
         });
     }
     Ok(())
+}
+
+fn new_window_default() -> bool {
+    matches!(std::env::var("AGY_BROWSER_NEW_WINDOW").as_deref(), Ok("1" | "true"))
 }
 
 fn ok(id: Value, result: Value) -> Value {
